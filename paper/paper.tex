@@ -48,7 +48,7 @@
 }
 
 % ---- Title ----
-\title{\textbf{OptMLX: Zero-Copy Memory-Mapped Loading and \\ KV Cache Pre-Allocation for MLX on Apple Silicon}}
+\title{\textbf{Exploring Zero-Copy mmap Loading and KV Cache \\ Pre-Allocation for MLX on Apple Silicon}}
 \author{
   AtomGradient
 }
@@ -62,13 +62,14 @@
 % Abstract
 % ============================================================
 \begin{abstract}
-Apple's MLX framework provides an elegant interface for machine learning on Apple Silicon, but its memory management leaves a significant efficiency gap compared to llama.cpp.
-Specifically, MLX's default \texttt{pread}-based weight loading performs a full memory copy, and its KV cache grows dynamically during inference, causing unpredictable memory spikes.
-We present \textbf{OptMLX}, a set of targeted optimizations addressing these limitations.
-First, we implement a \textbf{zero-copy memory-mapped (mmap) loading} path that leverages Apple Silicon's Unified Memory Architecture to share a single physical copy of model weights between CPU and GPU\@.
-Second, we introduce \textbf{KV cache pre-allocation} that reserves the full context window at startup, eliminating dynamic memory growth during inference.
-Third, we identify and fix a \textbf{quantized model dtype inference bug} in mlx-lm where \texttt{QuantizedLinear} layers incorrectly report \texttt{uint32} as their working precision.
-Benchmarks on an M4~Max (48\,GB) across eight Qwen3 model variants show that mmap loading achieves up to \textbf{20.65$\times$ speedup} for larger models with no degradation in inference throughput, while KV pre-allocation provides deterministic, flat memory usage at the cost of a small upfront allocation.
+llama.cpp achieves remarkably flat memory behavior on Apple Silicon through memory-mapped (mmap) weight loading and pre-allocated KV caches.
+We investigate whether these same techniques can benefit the MLX framework, which instead uses \texttt{pread}-based loading and dynamically grown KV caches.
+We implement a zero-copy mmap loading path in MLX's C++ core and a KV cache pre-allocation option in mlx-lm, and evaluate both across eight Qwen3 quantized model variants on an M1~Max (32\,GB).
+Our results are mixed: mmap loading shows dramatic speedups for certain larger models (up to 20$\times$ for one 8\,GB model) but performs \emph{worse} than standard loading for small models and in some large-model configurations.
+KV pre-allocation successfully flattens memory growth but adds 0.5--0.6\,GB of upfront cost and slightly increases first-token latency, offering no throughput benefit over MLX's dynamic approach.
+During implementation, we also discovered and fixed a quantized model dtype inference bug.
+Overall, our findings suggest that \textbf{MLX's existing memory management is already well-suited to its design goals}, and that naively transplanting llama.cpp's strategies does not yield consistent improvements.
+We present our implementation details, benchmark data, and analysis of why these techniques interact differently with MLX's lazy evaluation model.
 \end{abstract}
 
 % ============================================================
@@ -77,21 +78,28 @@ Benchmarks on an M4~Max (48\,GB) across eight Qwen3 model variants show that mma
 \section{Introduction}
 \label{sec:intro}
 
-The MLX framework~\cite{mlx2023} by Apple provides a NumPy-like API with lazy evaluation and automatic differentiation, designed to run efficiently on Apple Silicon's Metal GPU backend.
+The MLX framework~\cite{mlx2023} by Apple provides a NumPy-like API with lazy evaluation and automatic differentiation, designed for Apple Silicon's Metal GPU backend.
 Combined with the mlx-lm inference engine, it has become a popular choice for running large language models (LLMs) locally on Mac hardware.
 
-However, a direct comparison with llama.cpp~\cite{llamacpp} reveals a significant gap in memory management efficiency.
-llama.cpp employs memory-mapped file I/O (\texttt{mmap}) for model loading, achieving zero-copy weight access by exploiting the Unified Memory Architecture (UMA) of Apple Silicon.
-It further pre-allocates the entire KV cache at startup, resulting in flat, predictable memory consumption during inference~\cite{ggml2023}.
-In contrast, MLX's default path uses \texttt{pread()} to copy safetensors weights into freshly allocated buffers, and its KV cache grows in 256-token increments, leading to staircase-like memory growth and potential out-of-memory errors during long conversations.
+A separate ecosystem, llama.cpp~\cite{llamacpp}, takes a very different approach to memory management.
+It uses memory-mapped file I/O (\texttt{mmap}) for model loading, achieving zero-copy weight access, and pre-allocates the entire KV cache at startup, resulting in flat, predictable memory consumption~\cite{ggml2023}.
+In contrast, MLX's default path uses \texttt{pread()} to load safetensors weights into allocated buffers, and its KV cache grows dynamically in 256-token increments.
 
-In this paper, we present \textbf{OptMLX}, a set of modifications to MLX and mlx-lm that close this efficiency gap.
-Our contributions are:
+A natural question arises: \emph{would MLX benefit from adopting llama.cpp's memory strategies?}
+In this paper, we explore this question by implementing both techniques within the MLX ecosystem and conducting systematic benchmarks.
+Our findings are nuanced:
+\begin{itemize}[leftmargin=*]
+  \item Mmap loading helps significantly in some configurations but hurts in others, revealing that MLX's \texttt{pread}-based loader is already highly efficient for typical model sizes.
+  \item KV pre-allocation achieves its goal of flat memory usage but at the cost of increased startup latency and memory overhead, with no throughput improvement over the dynamic approach.
+  \item MLX's lazy evaluation model and the safetensors format introduce constraints (e.g., offset alignment, tensor materialization) that make zero-copy loading less straightforward than in llama.cpp's GGUF-based pipeline.
+\end{itemize}
+
+Our specific contributions are:
 \begin{enumerate}[leftmargin=*]
-  \item \textbf{Zero-copy mmap loading:} A new \texttt{MmapReader} class in MLX's C++ core that memory-maps safetensors files, creates Metal buffers backed by the mapped region, and exposes offset views for individual tensors---achieving true zero-copy loading on Apple~Silicon.
-  \item \textbf{KV cache pre-allocation:} An optional \texttt{max\_context\_length} parameter for mlx-lm's \texttt{KVCache} that reserves the full context window upfront, converting dynamic allocation into a single deterministic allocation.
-  \item \textbf{Quantized dtype bug fix:} Identification and correction of a bug where \texttt{Quantized\-Linear.weight.dtype} returns \texttt{uint32} (the packed storage type) instead of the model's working precision, causing incorrect KV cache allocation.
-  \item \textbf{Systematic benchmarks:} Three comprehensive benchmark suites (loading speed, inference impact, pre-allocation tradeoffs) across eight quantized Qwen3 model variants on M4~Max hardware.
+  \item \textbf{Mmap loading implementation:} A \texttt{MmapReader} class in MLX's C++ core that memory-maps safetensors files and exposes offset views via Metal buffers, with alignment checks and fallback paths.
+  \item \textbf{KV cache pre-allocation:} An optional \texttt{max\_context\_length} parameter for mlx-lm's \texttt{KVCache} that reserves the full context window upfront.
+  \item \textbf{Quantized dtype bug fix:} Discovery of a bug where \texttt{Quantized\-Linear.weight.dtype} returns \texttt{uint32} instead of the working precision.
+  \item \textbf{Systematic benchmarks and analysis:} Three benchmark suites across eight models, with discussion of \emph{why} these techniques do not consistently outperform MLX's defaults.
 \end{enumerate}
 
 % ============================================================
@@ -103,46 +111,56 @@ Our contributions are:
 \subsection{Apple Silicon Unified Memory Architecture}
 \label{sec:uma}
 
-Apple Silicon processors (M1--M4 series) feature a Unified Memory Architecture where CPU, GPU, and Neural Engine share the same physical memory pool with up to 800\,GB/s bandwidth.
-This eliminates the traditional PCIe bottleneck between host and device memory, enabling zero-copy data sharing: a buffer allocated once can be accessed by both CPU and GPU without any transfer.
+Apple Silicon processors (M1--M4 series) feature a Unified Memory Architecture (UMA) where CPU, GPU, and Neural Engine share the same physical memory pool with up to 800\,GB/s bandwidth.
+This eliminates the traditional PCIe bottleneck, enabling zero-copy data sharing: a buffer allocated once can be accessed by both CPU and GPU without any transfer.
 
 \subsection{The Safetensors Format}
 \label{sec:safetensors}
 
-Safetensors~\cite{safetensors} is a simple, safe tensor serialization format designed by Hugging Face.
-A safetensors file consists of an 8-byte header length, a JSON header mapping tensor names to their data types, shapes, and byte offsets, followed by the raw tensor data.
+Safetensors~\cite{safetensors} is a simple, safe tensor serialization format by Hugging Face.
+A safetensors file contains an 8-byte header length, a JSON header mapping tensor names to their data types, shapes, and byte offsets, followed by the raw tensor data.
 The format supports direct byte-offset access, making it amenable to memory-mapped loading.
-However, the format specification does not guarantee that tensor offsets are aligned to element boundaries (e.g., 2-byte alignment for float16), which we must handle explicitly.
+However, the specification does not guarantee that tensor offsets are aligned to element boundaries (e.g., 2-byte alignment for float16), which complicates zero-copy access.
 
 \subsection{MLX Framework}
 \label{sec:mlx}
 
 MLX~\cite{mlx2023} is a machine learning framework for Apple Silicon.
-Its key design principles include lazy evaluation (operations are recorded into a computation graph and executed only when results are needed), a NumPy-like Python API, and composable function transformations (grad, vmap, etc.).
+Key design principles include lazy evaluation (operations are recorded into a computation graph and executed only when results are needed), a NumPy-like Python API, and composable function transformations.
 The Metal backend compiles operations into GPU compute shaders.
-MLX loads model weights via a \texttt{Load} primitive that, in the default path, uses \texttt{pread()} to read data from disk into a newly allocated buffer.
+MLX loads model weights via a \texttt{Load} primitive that, by default, uses \texttt{pread()} to read data from disk into a newly allocated buffer.
+Notably, this design gives MLX full control over buffer lifecycle and enables optimizations within its lazy evaluation graph that may not be possible with externally managed mmap buffers.
 
 \subsection{KV Cache in LLM Inference}
 \label{sec:kv}
 
-Autoregressive LLM inference computes attention over all previous tokens at each generation step.
-To avoid redundant computation, the key and value projections are cached in a \emph{KV cache}.
+Autoregressive LLM inference caches key and value projections to avoid redundant computation.
 The cache size grows linearly with sequence length: for a model with $L$ layers, $H$ KV heads, and head dimension $d$, storing $T$ tokens requires $2 \times L \times H \times T \times d$ elements.
-In mlx-lm's default implementation, the cache is initialized as \texttt{None} and grown in 256-token chunks via concatenation, causing periodic memory allocation and fragmentation.
+In mlx-lm's default implementation, the cache starts empty and grows in 256-token chunks.
+While this ``staircase'' growth pattern uses more memory management operations, it has the advantage of allocating only the memory actually needed.
+
+\subsection{How llama.cpp Differs}
+\label{sec:llamacpp}
+
+llama.cpp~\cite{llamacpp} takes a fundamentally different approach.
+It uses \texttt{mmap} to map GGUF model files directly into the process address space, relying on the OS page cache for demand paging.
+Its static computation graph (\texttt{ggml}) pre-analyzes all tensor dependencies and uses a graph-coloring memory allocator to maximize buffer reuse~\cite{ggml2023}.
+The KV cache is allocated at full context length at startup.
+These design choices yield nearly constant memory consumption during inference---but they are tightly coupled to GGUF's guaranteed-aligned format and ggml's ahead-of-time memory planning, neither of which directly applies to MLX's safetensors-based, lazy-evaluation pipeline.
 
 % ============================================================
 % 3. Design & Implementation
 % ============================================================
-\section{Design and Implementation}
+\section{Implementation}
 \label{sec:design}
 
 \subsection{Zero-Copy mmap Loading}
 \label{sec:mmap}
 
-\subsubsection{Architecture Overview}
+\subsubsection{Architecture}
 
-Figure~\ref{fig:mmap_arch} illustrates the data flow of our mmap loading path.
-When \texttt{mx.load(path,\allowbreak{} use\_mmap=True)} is called, the Python binding routes the call through \texttt{load\_safetensors\_mmap()}, which constructs an \texttt{Mmap\-Reader} instead of the default \texttt{Parallel\-File\-Reader}.
+Figure~\ref{fig:mmap_arch} illustrates the mmap loading path.
+When \texttt{mx.load(path,\allowbreak{} use\_mmap=True)} is called, the Python binding constructs an \texttt{Mmap\-Reader} instead of the default \texttt{Parallel\-File\-Reader}.
 
 \begin{figure}[t]
 \centering
@@ -153,29 +171,24 @@ When \texttt{mx.load(path,\allowbreak{} use\_mmap=True)} is called, the Python b
   arrow/.style={-{Stealth[length=3mm]}, thick},
   label/.style={font=\scriptsize\itshape, text=gray}
 ]
-  % Nodes
   \node[block] (file) {Safetensors File\\on Disk};
   \node[block, right=of file] (mmap) {\texttt{mmap()}\\Virtual Memory};
   \node[block, right=of mmap] (metal) {Metal Buffer\\(Shared)};
   \node[block, below=of metal] (parent) {Parent Array\\(\texttt{uint8})};
   \node[block, below left=0.6cm and 0cm of parent] (view1) {Tensor A\\(offset view)};
   \node[block, below right=0.6cm and 0cm of parent] (view2) {Tensor B\\(offset view)};
-
-  % Arrows
   \draw[arrow] (file) -- (mmap) node[midway, above, label] {\texttt{MAP\_PRIVATE}};
   \draw[arrow] (mmap) -- (metal) node[midway, above, label] {UMA zero-copy};
   \draw[arrow] (metal) -- (parent);
   \draw[arrow] (parent) -- (view1);
   \draw[arrow] (parent) -- (view2);
-
-  % Annotation
   \node[label, below=0.1cm of view1, text width=3cm, align=center] {CPU \& GPU\\share same memory};
 \end{tikzpicture}
-\caption{Architecture of mmap zero-copy model loading. The safetensors file is memory-mapped once; a Metal buffer is created over the mapped region via UMA\@. Individual tensors are exposed as offset views into a parent array, requiring no data copies.}
+\caption{Mmap loading data flow. The safetensors file is memory-mapped once; a Metal buffer is created over the mapped region. Individual tensors are exposed as offset views into a parent array.}
 \label{fig:mmap_arch}
 \end{figure}
 
-\subsubsection{MmapReader Implementation}
+\subsubsection{MmapReader}
 
 The \texttt{MmapReader} class encapsulates the POSIX mmap lifecycle:
 
@@ -192,65 +205,37 @@ MmapReader::MmapReader(std::string file_path) {
 }
 \end{lstlisting}
 
-The file descriptor is closed immediately after mapping---the mapping persists independently.
-\texttt{MAP\_PRIVATE} provides copy-on-write semantics, ensuring the original file is never modified.
-The \texttt{MADV\_SEQUENTIAL} hint enables kernel readahead optimization for sequential tensor access patterns.
+\texttt{MAP\_PRIVATE} provides copy-on-write semantics.
+The \texttt{MADV\_SEQUENTIAL} hint enables kernel readahead.
+A Metal buffer is lazily created over the mmap region via \texttt{allocator::make\_buffer()}, exploiting UMA for zero-copy GPU access.
 
-\subsubsection{Metal Buffer Sharing via UMA}
+\subsubsection{Alignment Check and Fallback}
 
-On Apple Silicon, a Metal buffer can be created directly over the mmap region:
+The critical zero-copy path in \texttt{Load::eval\_cpu()} requires an alignment check:
 
-\begin{lstlisting}[language=C++, caption={Lazy Metal buffer creation.}]
-Buffer MmapReader::get_metal_buffer() {
-  if (!metal_buffer_.ptr() && mmap_ptr_) {
-    metal_buffer_ = allocator::make_buffer(
-      mmap_ptr_, file_size_);
-  }
-  return metal_buffer_;
-}
-\end{lstlisting}
-
-Because CPU and GPU share the same physical memory, this buffer is directly accessible to Metal compute shaders without any data transfer.
-
-\subsubsection{Zero-Copy Tensor Loading with Alignment Check}
-
-The critical path in \texttt{Load::eval\_cpu()} creates offset views into the mmap buffer:
-
-\begin{lstlisting}[language=C++, caption={Zero-copy path in Load::eval\_cpu() (simplified).}]
+\begin{lstlisting}[language=C++, caption={Zero-copy path with alignment guard (simplified).}]
 if (reader_->is_mmap() && !swap_endianness_) {
   auto mmap_reader = dynamic_pointer_cast<MmapReader>(reader_);
   if (mmap_reader && (offset_ % out.itemsize() == 0)) {
     auto metal_buf = mmap_reader->get_metal_buffer();
-    // Create parent array over entire mmap region
     auto parent = array(metal_buf, {1}, uint8,
       [reader_ref](Buffer) { /* prevent dealloc */ });
-    // Create offset view -- zero copy!
     out.copy_shared_buffer(parent, strides, flags,
       out.size(), offset_ / out.itemsize());
-    return;
+    return;  // Zero-copy success
   }
 }
-// Fallback: memcpy for unaligned offsets
+// Fallback: allocate + memcpy for unaligned offsets
 \end{lstlisting}
 
-The alignment check \texttt{offset\_ \% out.itemsize() == 0} is essential because safetensors does not guarantee element-aligned offsets.
-If an offset is not aligned (e.g., a float16 tensor starting at an odd byte), integer division would truncate the offset, leading to corrupted data.
-In such cases, we gracefully fall back to \texttt{memcpy}.
-
-\subsubsection{Lifecycle Management}
-
-The \texttt{MmapReader} must remain alive as long as any tensor references its mapped memory.
-We achieve this by capturing a \texttt{shared\_ptr<Reader>} in the parent array's deleter lambda.
-When all tensors (and the parent array) are deallocated, the reference count drops to zero, triggering \texttt{MmapReader}'s destructor which calls \texttt{munmap()}.
+The check \texttt{offset\_ \% out.itemsize() == 0} is essential because safetensors does not guarantee element-aligned offsets.
+Without it, integer division would silently truncate the byte offset, corrupting tensor data.
+The lifecycle of the \texttt{MmapReader} is managed by capturing a \texttt{shared\_ptr<Reader>} in the parent array's deleter lambda, ensuring the mapping persists as long as any tensor references it.
 
 \subsection{KV Cache Pre-Allocation}
 \label{sec:prealloc}
 
-\subsubsection{Dynamic vs.\ Pre-Allocated KV Cache}
-
-Figure~\ref{fig:kv_comparison} contrasts the two memory behaviors.
-The dynamic approach (default in mlx-lm) starts with zero memory and grows in 256-token steps as the conversation progresses.
-The pre-allocated approach reserves the full context window at startup, resulting in a flat memory profile during inference.
+Figure~\ref{fig:kv_comparison} contrasts the two approaches: MLX's default dynamic growth (staircase) versus pre-allocation (flat line).
 
 \begin{figure}[t]
 \centering
@@ -266,25 +251,21 @@ The pre-allocated approach reserves the full context window at startup, resultin
   grid=major,
   grid style={dashed, gray!30},
 ]
-  % Dynamic: staircase growth in 256-token steps
   \addplot[blue, thick, const plot] coordinates {
     (0,0) (256,80) (512,160) (768,240) (1024,320)
     (1280,400) (1536,480) (1792,560) (2048,640)
   };
-  \addlegendentry{Dynamic (step=256)}
+  \addlegendentry{Dynamic (default)}
 
-  % Pre-allocated: flat line
   \addplot[red, thick, dashed] coordinates {
     (0,640) (4096,640)
   };
-  \addlegendentry{Pre-allocated (4096)}
+  \addlegendentry{Pre-allocated}
 \end{axis}
 \end{tikzpicture}
-\caption{KV cache memory over time: dynamic growth (staircase) vs.\ pre-allocation (flat). Pre-allocation uses more memory initially but provides deterministic, stable memory consumption.}
+\caption{KV cache memory over time: dynamic growth vs.\ pre-allocation. Pre-allocation provides flat memory at the cost of higher initial usage.}
 \label{fig:kv_comparison}
 \end{figure}
-
-\subsubsection{Implementation}
 
 Pre-allocation is implemented in the \texttt{KVCache} constructor:
 
@@ -295,7 +276,6 @@ class KVCache(_BaseCache):
                  max_context_length=0, dtype=mx.float16):
         self.offset = 0
         if max_context_length > 0 and n_kv_heads > 0:
-            # Align to 256-token boundary
             L = ((max_context_length + 255) // 256) * 256
             self.keys = mx.zeros(
                 (1, n_kv_heads, L, head_dim), dtype=dtype)
@@ -304,39 +284,16 @@ class KVCache(_BaseCache):
             mx.eval(self.keys, self.values)  # Force alloc
 \end{lstlisting}
 
-The \texttt{mx.eval()} call forces immediate physical memory allocation, bypassing MLX's lazy evaluation.
-All parameters default to zero, ensuring full backward compatibility---existing code without pre-allocation parameters continues to use dynamic growth.
-When the sequence exceeds the pre-allocated length, the cache gracefully falls back to dynamic expansion via concatenation.
+All parameters default to zero for backward compatibility.
+The \texttt{mx.eval()} call forces immediate physical allocation, bypassing lazy evaluation.
+If the sequence exceeds the pre-allocated length, the cache gracefully falls back to dynamic expansion.
 
-\subsubsection{Model-Aware dtype Inference}
-
-The \texttt{make\_prompt\_cache()} factory function extracts model dimensions and precision:
-
-\begin{lstlisting}[language=Python, caption={dtype inference for quantized models.}]
-k_proj = layer.self_attn.k_proj
-scales = getattr(k_proj, "scales", None)
-if scales is not None:
-    dtype = scales.dtype  # Use scales, not weight
-else:
-    dtype = k_proj.weight.dtype
-\end{lstlisting}
-
-This directly addresses the quantized dtype bug described in Section~\ref{sec:dtype_fix}.
-
-\subsection{Quantized Model dtype Fix}
+\subsection{Quantized Model dtype Bug}
 \label{sec:dtype_fix}
 
-We discovered a subtle bug in mlx-lm's dtype inference for quantized models.
-The \texttt{QuantizedLinear} layer stores weights in packed \texttt{uint32} format, where multiple low-bit values are packed into each 32-bit integer.
-When KV cache pre-allocation queries \texttt{layer.weight.dtype} to determine the working precision, it receives \texttt{uint32} instead of the actual computation dtype (typically \texttt{float16} or \texttt{bfloat16}\kern0pt).
-
-The fix is straightforward: for quantized layers, inspect the \texttt{scales} tensor (which stores dequantization scale factors in the model's working precision) instead of the packed weight tensor.
-The priority chain is:
-\begin{enumerate}[leftmargin=*]
-  \item If \texttt{scales} attribute exists $\rightarrow$ use \texttt{scales.dtype}
-  \item Else if \texttt{weight.dtype} $\in \{\texttt{float16}, \texttt{bfloat16}, \texttt{float32}\}$ $\rightarrow$ use directly
-  \item Else $\rightarrow$ default to \texttt{float16}
-\end{enumerate}
+During implementation, we discovered that \texttt{QuantizedLinear.weight.dtype} returns \texttt{uint32} (the packed storage type) rather than the model's working precision.
+This caused the KV cache to be allocated in \texttt{uint32} instead of \texttt{float16}.
+The fix inspects the \texttt{scales} tensor for quantized layers, which stores dequantization factors in the correct working dtype.
 
 % ============================================================
 % 4. Evaluation
@@ -344,16 +301,14 @@ The priority chain is:
 \section{Evaluation}
 \label{sec:eval}
 
-\subsection{Experimental Setup}
+\subsection{Setup}
 \label{sec:setup}
 
-All experiments were conducted on:
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Hardware:} Apple M4~Max, 48\,GB unified memory
+  \item \textbf{Hardware:} Apple M1~Max, 32\,GB unified memory
   \item \textbf{Software:} macOS, MLX 0.30.7, Python 3.11
-  \item \textbf{Models:} Eight Qwen3~\cite{qwen3} quantized variants spanning 4B--14B parameters and 3--8 bit quantization (Table~\ref{tab:models})
-  \item \textbf{Prompt:} A 34-token physics question (fixed across all runs)
-  \item \textbf{Generation:} 200 output tokens per run
+  \item \textbf{Models:} Eight Qwen3~\cite{qwen3} quantized variants (Table~\ref{tab:models})
+  \item \textbf{Prompt:} 34-token fixed physics question; 200 output tokens per run
 \end{itemize}
 
 \begin{table}[t]
@@ -380,11 +335,11 @@ Qwen3-14B-6bit & 14B & 11.18 \\
 \subsection{Loading Speed}
 \label{sec:loading}
 
-Table~\ref{tab:loading} and Figure~\ref{fig:loading_bar} present the model loading time comparison between standard (\texttt{pread}) and mmap loading, averaged over 3 runs each after OS page cache warmup.
+Table~\ref{tab:loading} and Figure~\ref{fig:loading_bar} compare loading times (3 runs each, page cache warmed).
 
 \begin{table}[t]
 \centering
-\caption{Model loading time: standard vs.\ mmap (seconds, lower is better). Speedup $>1$ indicates mmap is faster.}
+\caption{Model loading time: standard vs.\ mmap (seconds). Speedup $>1$ means mmap is faster; $<1$ means mmap is \emph{slower}.}
 \label{tab:loading}
 \small
 \begin{tabular}{lrrr}
@@ -396,7 +351,7 @@ Qwen3-4B-8bit  & 0.184 & 0.246 & 0.75$\times$ \\
 Qwen3-8B-3bit  & 0.146 & 0.075 & 1.95$\times$ \\
 Qwen3-8B-4bit  & 0.352 & 0.328 & 1.07$\times$ \\
 Qwen3-8B-6bit  & 0.637 & 0.435 & 1.46$\times$ \\
-Qwen3-8B-8bit  & 2.572 & 0.125 & \textbf{20.65$\times$} \\
+Qwen3-8B-8bit  & 2.572 & 0.125 & 20.65$\times$ \\
 Qwen3-14B-4bit & 2.323 & 0.535 & 4.34$\times$ \\
 Qwen3-14B-6bit & 3.701 & 5.388 & 0.69$\times$ \\
 \bottomrule
@@ -420,7 +375,6 @@ Qwen3-14B-6bit & 3.701 & 5.388 & 0.69$\times$ \\
   legend style={at={(0.02,0.98)}, anchor=north west, font=\small},
   grid=major,
   grid style={dashed, gray!30},
-  nodes near coords style={font=\tiny, rotate=90, anchor=west},
 ]
   \addplot[fill=blue!60] coordinates {
     (4B-4b, 0.101) (4B-8b, 0.184) (8B-3b, 0.146) (8B-4b, 0.352)
@@ -435,21 +389,23 @@ Qwen3-14B-6bit & 3.701 & 5.388 & 0.69$\times$ \\
   \addlegendentry{Mmap}
 \end{axis}
 \end{tikzpicture}
-\caption{Model loading time comparison. Mmap provides dramatic speedups for larger models (8B-8bit: 20.65$\times$, 14B-4bit: 4.34$\times$) but shows slight overhead for smaller models.}
+\caption{Loading time comparison. Results are highly variable: mmap helps for some models (8B-8bit) but is slower for others (4B-4bit, 4B-8bit, 14B-6bit).}
 \label{fig:loading_bar}
 \end{figure}
 
-The results reveal a clear pattern: \textbf{mmap loading provides substantial speedups for models above approximately 4\,GB}, with the most dramatic improvement on Qwen3-8B-8bit (20.65$\times$).
-For smaller models ($<$4\,GB), the mmap overhead from virtual memory setup and page table initialization can outweigh the benefits.
+The results are \textbf{inconsistent across models}.
+Three out of eight models (4B-4bit, 4B-8bit, 14B-6bit) load \emph{slower} with mmap.
+The 20.65$\times$ speedup on Qwen3-8B-8bit is an outlier---possibly due to the standard loader hitting a pathological \texttt{pread} pattern for this specific file layout.
+For the majority of models in the 2--6\,GB range, the difference is small (0.75--1.46$\times$), suggesting that MLX's standard loading is already efficient enough that mmap offers limited benefit.
 
 \subsection{Inference Impact}
 \label{sec:inference}
 
-Table~\ref{tab:inference} examines whether mmap loading affects inference throughput and memory consumption.
+Table~\ref{tab:inference} examines whether the loading method affects runtime inference.
 
 \begin{table}[t]
 \centering
-\caption{Inference performance: standard vs.\ mmap loading. Metrics include load time (s), prompt processing (tokens/s), generation throughput (tokens/s), and peak memory (GB).}
+\caption{Inference performance with standard vs.\ mmap loading. Generation throughput (Gen t/s) is the metric most relevant to user experience.}
 \label{tab:inference}
 \small
 \setlength{\tabcolsep}{3pt}
@@ -470,24 +426,25 @@ Table~\ref{tab:inference} examines whether mmap loading affects inference throug
 \bottomrule
 \end{tabular}
 \vspace{2pt}
-\small{$^\dagger$ Memory doubling observed---likely due to mmap region not being released when MLX materializes tensors. See Section~\ref{sec:discussion}.}
+\small{$^\dagger$ Memory nearly doubled---mmap region likely coexists with materialized copies.}
 \end{table}
 
-Key observations:
+Two findings stand out:
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Generation throughput is essentially identical} between standard and mmap loading across all models, confirming that the choice of loading strategy does not affect runtime inference performance.
-  \item \textbf{Load times} in the inference benchmark differ from Table~\ref{tab:loading} because they include model initialization overhead beyond just file I/O\@.
-  \item \textbf{Memory anomaly:} Two models (8B-4bit and 14B-4bit) show elevated peak memory with mmap loading ($\dagger$), suggesting that in some configurations the mmap region coexists with materialized tensor copies.
+  \item \textbf{Generation throughput is unchanged.} Across all eight models, the generation speed difference is within noise ($<$3\%), confirming that loading method does not affect runtime performance.
+  This is expected: once weights are in memory, the computation is identical.
+  \item \textbf{Mmap can \emph{increase} peak memory.} For 8B-4bit and 14B-4bit ($\dagger$), peak memory nearly doubled with mmap.
+  This suggests that when MLX materializes quantized tensors during lazy evaluation, it allocates new buffers while the mmap-backed originals remain pinned---\emph{the opposite of the memory saving we hoped for}.
 \end{itemize}
 
-\subsection{KV Cache Pre-Allocation Tradeoffs}
+\subsection{KV Cache Pre-Allocation}
 \label{sec:prealloc_eval}
 
-Table~\ref{tab:prealloc} presents the impact of KV cache pre-allocation on three model sizes across three configurations: dynamic (default), pre-allocate for 2048 tokens, and pre-allocate for 4096 tokens.
+Table~\ref{tab:prealloc} shows results for three models across dynamic, 2048-token, and 4096-token pre-allocation.
 
 \begin{table}[t]
 \centering
-\caption{KV cache pre-allocation impact. FTLT = first token latency (ms), Prompt/Gen = tokens/s, Peak Mem = GB, $\Delta$Mem = additional memory vs.\ dynamic.}
+\caption{KV cache pre-allocation impact. FTLT = first token latency (ms).}
 \label{tab:prealloc}
 \small
 \setlength{\tabcolsep}{3.5pt}
@@ -514,71 +471,103 @@ Table~\ref{tab:prealloc} presents the impact of KV cache pre-allocation on three
 \end{tabular}
 \end{table}
 
-The results show:
+The results show that pre-allocation \textbf{does not improve throughput}:
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Memory overhead is modest:} Pre-allocating 4096 tokens adds 0.5--0.6\,GB across all models, consistent with theoretical KV cache sizes.
-  \item \textbf{First token latency increases slightly} (5--7\%) due to the upfront \texttt{mx.eval()} allocation.
-  \item \textbf{Generation throughput is maintained:} The differences are within measurement noise ($<$5\%).
-  \item \textbf{Prompt processing shows a small decrease} (4--14\%) for pre-allocated configurations, likely due to the larger memory footprint reducing available cache for computation.
+  \item \textbf{Generation speed is essentially unchanged} ($<$5\% difference), indicating that MLX's dynamic 256-token growth does not cause meaningful overhead during inference.
+  \item \textbf{Prompt processing decreases} by 4--14\%, likely because the larger upfront allocation reduces available memory for MLX's computation buffers.
+  \item \textbf{First token latency increases} by 5--7\% due to the forced \texttt{mx.eval()} at startup.
+  \item \textbf{Memory overhead is predictable:} 0.25\,GB for 2048 tokens, 0.5\,GB for 4096 tokens.
 \end{itemize}
 
-\subsection{Discussion}
-\label{sec:discussion}
-
-\paragraph{When mmap helps and when it does not.}
-Mmap loading excels when model files are large ($>$4\,GB) and not already in the OS page cache.
-For small models that load in under 200\,ms with standard I/O, the mmap overhead (virtual memory area setup, page table allocation, TLB misses) can make it marginally slower.
-The 20.65$\times$ speedup on Qwen3-8B-8bit (8.11\,GB) demonstrates the best case: a large file where the standard loader's \texttt{pread} path involves multiple system calls and buffer copies that mmap eliminates entirely.
-
-\paragraph{Memory doubling anomaly.}
-The elevated peak memory observed for Qwen3-8B-4bit and Qwen3-14B-4bit with mmap loading suggests that MLX's lazy evaluation, when materializing quantized tensor operations, may create new buffers while the mmap-backed originals remain referenced.
-This is an area for future investigation and optimization.
-
-\paragraph{Pre-allocation is a memory-latency tradeoff.}
-KV cache pre-allocation is most beneficial for \emph{server-style} deployments where memory predictability matters more than absolute minimum footprint.
-For short, single-turn interactions where the generation rarely exceeds a few hundred tokens, the upfront allocation of 4096 tokens is wasteful.
-We recommend pre-allocation primarily for long-conversation or batch-serving scenarios.
-
-\paragraph{Anomaly in the 14B-6bit loading result.}
-Qwen3-14B-6bit shows a 0.69$\times$ slowdown with mmap.
-At 11.18\,GB, this model approaches the limits where mmap page faults become the bottleneck---the kernel must fault in more pages than the standard loader's buffered reads, and the overhead of managing the large virtual mapping dominates.
-This suggests that an adaptive strategy (using mmap only above a certain size threshold and below a memory pressure threshold) would be optimal.
+The one benefit---flat memory profile---is real but comes at a cost.
+MLX's dynamic approach, while producing staircase-like growth, avoids wasting memory for conversations that never reach the pre-allocated context length.
 
 % ============================================================
-% 5. Related Work
+% 5. Discussion
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why MLX's Existing Design Works Well}
+
+Our results paint a clear picture: \textbf{MLX's \texttt{pread}-based loading and dynamic KV cache are more appropriate for its design than we initially expected.}
+Several factors explain this:
+
+\paragraph{pread is fast enough.}
+For models under 4\,GB (the majority of quantized models people run locally), standard loading completes in under 200\,ms.
+At this scale, mmap's overhead---VMA creation, page table setup, TLB pressure---outweighs any benefit from avoiding copies.
+MLX's parallel file reader already uses efficient buffered I/O\@.
+
+\paragraph{Lazy evaluation conflicts with mmap.}
+MLX's lazy evaluation model means that tensor operations are deferred until explicitly evaluated.
+When quantized tensors loaded via mmap are later materialized (e.g., dequantization), MLX allocates \emph{new} buffers for the results while the mmap-backed originals remain referenced.
+This can lead to memory \emph{doubling} rather than saving---the exact opposite of our goal.
+In contrast, llama.cpp's eager, static graph avoids this issue entirely.
+
+\paragraph{Dynamic KV growth is not a bottleneck.}
+We hypothesized that the 256-token step growth pattern would cause allocation overhead and fragmentation.
+In practice, the impact is negligible: generation throughput is identical whether the cache is pre-allocated or not.
+MLX's allocator handles the periodic growth efficiently.
+
+\subsection{When Mmap Does Help}
+
+Despite the mixed overall results, mmap loading showed dramatic improvements in specific cases: 20.65$\times$ for Qwen3-8B-8bit and 4.34$\times$ for Qwen3-14B-4bit.
+These outliers share a common pattern: the standard loader's load time was anomalously high (2.3--2.6\,s for files that ``should'' load faster given their size), suggesting the \texttt{pread} path hit edge cases in the OS I/O scheduler.
+This indicates that mmap could serve as a useful fallback for specific problematic file layouts, but not as a general replacement.
+
+\subsection{The 14B-6bit Anomaly}
+
+The largest model tested (11.18\,GB) loaded \emph{slower} with mmap (0.69$\times$).
+At this size, the mmap approach must fault in an extremely large number of pages.
+The OS page fault handler becomes the bottleneck, as each 16\,KB page requires a kernel trap, page table update, and TLB insertion.
+The standard loader's buffered reads, which batch these operations, prove more efficient at scale.
+
+\subsection{Recommendations}
+
+Based on our findings:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{For most users,} MLX's default loading and dynamic KV cache are the best choice.
+  They are fast, memory-efficient, and well-integrated with the lazy evaluation model.
+  \item \textbf{Mmap loading} may be useful as an opt-in for specific large models where standard loading is slow, but should not be the default.
+  \item \textbf{KV pre-allocation} is only worth considering for server deployments where memory predictability is valued over efficiency, or for long-context scenarios ($>$8k tokens) where avoiding repeated reallocation becomes more important.
+\end{itemize}
+
+% ============================================================
+% 6. Related Work
 % ============================================================
 \section{Related Work}
 \label{sec:related}
 
 \paragraph{llama.cpp and ggml.}
-llama.cpp~\cite{llamacpp} pioneered the use of mmap for LLM weight loading, combined with ggml's static computation graph and memory-reuse allocator~\cite{ggml2023}.
-Our work brings similar mmap capabilities to the MLX ecosystem while adapting to MLX's lazy evaluation model and safetensors format.
+llama.cpp~\cite{llamacpp} pioneered mmap for LLM weight loading, combined with ggml's static graph and memory-reuse allocator~\cite{ggml2023}.
+Our work attempts to bring these techniques to MLX and finds that the benefits are architecture-dependent: what works well for ggml's static pipeline does not automatically transfer to MLX's lazy evaluation model.
 
 \paragraph{vLLM.}
-vLLM~\cite{kwon2023vllm} introduced PagedAttention, a virtual-memory-inspired approach to KV cache management that pages cache blocks to reduce fragmentation in multi-tenant GPU serving.
-While conceptually related, our pre-allocation approach is simpler and targets single-user inference on Apple Silicon rather than multi-tenant GPU serving.
+vLLM~\cite{kwon2023vllm} introduced PagedAttention for multi-tenant KV cache management.
+Our simpler pre-allocation targets single-user inference but arrives at a similar conclusion: careful memory management has tradeoffs that depend heavily on the workload.
 
 \paragraph{TensorRT-LLM.}
-NVIDIA's TensorRT-LLM~\cite{tensorrtllm} employs aggressive memory planning with pre-allocated KV caches and in-flight batching.
-Our KV pre-allocation achieves the same deterministic memory behavior in a much simpler implementation suitable for the MLX ecosystem.
+NVIDIA's TensorRT-LLM~\cite{tensorrtllm} uses aggressive pre-allocated KV caches for deterministic memory.
+Like our findings, this approach trades flexibility for predictability.
 
-\paragraph{Flash Attention.}
-FlashAttention~\cite{dao2022flashattention} reduces the memory footprint of the attention computation itself.
-Our optimizations are complementary: Flash Attention reduces per-step memory, while pre-allocation controls the cache growth pattern.
+\paragraph{FlashAttention.}
+FlashAttention~\cite{dao2022flashattention} reduces per-step attention memory.
+This is complementary to our work: it optimizes the computation, while we explore the allocation strategy.
 
 % ============================================================
-% 6. Conclusion
+% 7. Conclusion
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented OptMLX, a set of memory management optimizations for the MLX framework on Apple Silicon.
-Our zero-copy mmap loading achieves up to 20.65$\times$ speedup for model loading with no degradation in inference throughput, by leveraging the Unified Memory Architecture to share memory-mapped file contents directly with the Metal GPU backend.
-Our KV cache pre-allocation converts unpredictable dynamic memory growth into a single deterministic allocation, adding only 0.5--0.6\,GB for a 4096-token context window.
-Along the way, we identified and fixed a quantized model dtype inference bug that would cause incorrect cache allocation.
+We explored whether llama.cpp's memory management strategies---mmap loading and KV cache pre-allocation---could improve MLX's performance on Apple Silicon.
+Our systematic benchmarks across eight models reveal that these techniques yield \textbf{inconsistent results}: mmap loading helps for some larger models but hurts for small models and can increase peak memory due to interactions with MLX's lazy evaluation; KV pre-allocation achieves flat memory usage but offers no throughput benefit and adds startup overhead.
 
-These optimizations bring MLX's memory management closer to the efficiency of llama.cpp while preserving MLX's Pythonic API and lazy evaluation design.
-We hope this work serves as a reference for future memory optimizations in the MLX ecosystem.
+These findings lead us to a perhaps surprising conclusion: \textbf{MLX's existing memory management---\texttt{pread}-based loading with dynamic KV cache growth---is already well-designed for its target use case.}
+The design choices that differ from llama.cpp are not oversights but rather appropriate adaptations to MLX's lazy evaluation model and the safetensors ecosystem.
+
+We hope this exploration is useful to others considering similar optimizations, and that our benchmark data and implementation details serve as a reference.
+During this work, we also identified and fixed a quantized model dtype inference bug, which we consider the most practically useful contribution of this project.
 
 All code and benchmark data are available at \url{https://github.com/optmlx/OptMLX}.
 

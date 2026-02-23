@@ -191,33 +191,33 @@ footer .links { display: flex; gap: 1.5rem; justify-content: center; margin-bott
 <!-- Hero -->
 <div class="hero">
   <h1><span>Opt</span>MLX</h1>
-  <p class="tagline">Zero-copy model loading &amp; KV cache pre-allocation for MLX on Apple Silicon</p>
+  <p class="tagline">Exploring zero-copy mmap loading &amp; KV cache pre-allocation for MLX on Apple Silicon</p>
   <div class="badges">
-    <div class="badge"><span class="num">20x</span> Faster Loading</div>
-    <div class="badge green"><span class="num">0%</span> Inference Overhead</div>
-    <div class="badge yellow"><span class="num">1</span> Quantized Bug Fixed</div>
+    <div class="badge"><span class="num">8</span> Models Benchmarked</div>
+    <div class="badge green"><span class="num">3</span> Benchmark Suites</div>
+    <div class="badge yellow"><span class="num">1</span> Bug Discovered &amp; Fixed</div>
   </div>
 </div>
 
 <!-- Features -->
 <section id="features">
-  <h2>Features</h2>
-  <p class="subtitle">Three targeted optimizations to close the gap with llama.cpp</p>
+  <h2>What We Explored</h2>
+  <p class="subtitle">Can llama.cpp's memory strategies improve MLX? We implemented and benchmarked two approaches.</p>
   <div class="cards">
     <div class="card">
       <div class="icon">&#x1F5FA;&#xFE0F;</div>
       <h3>mmap Zero-Copy Loading</h3>
-      <p>Memory-map safetensors files and create Metal buffers directly over the mapped region. Apple Silicon's UMA ensures CPU and GPU share the same physical copy&mdash;no data transfer needed. Up to 20.65x faster for large models.</p>
+      <p>We implemented memory-mapped safetensors loading with Metal buffer sharing via UMA. <strong>Results are mixed:</strong> dramatic speedups for some large models, but slower than standard loading for small models. MLX's pread-based loader is already highly efficient.</p>
     </div>
     <div class="card">
       <div class="icon">&#x1F4E6;</div>
       <h3>KV Cache Pre-Allocation</h3>
-      <p>Reserve the full context window at startup with a single deterministic allocation. Eliminates the staircase memory growth pattern, providing flat and predictable memory usage during inference.</p>
+      <p>We added optional upfront KV cache allocation to flatten memory growth. <strong>It works but doesn't help throughput:</strong> generation speed is unchanged, while startup latency and memory usage increase. MLX's dynamic growth handles this well already.</p>
     </div>
     <div class="card">
       <div class="icon">&#x1F41B;</div>
-      <h3>Quantized dtype Fix</h3>
-      <p>Fixed a bug where QuantizedLinear layers report uint32 (packed storage type) as their dtype instead of the actual working precision. The fix uses scales.dtype for correct inference.</p>
+      <h3>Quantized dtype Bug Fix</h3>
+      <p>We discovered that QuantizedLinear.weight.dtype returns uint32 (packed storage) instead of the working precision. The fix uses scales.dtype instead&mdash;arguably the most practically useful finding of this project.</p>
     </div>
   </div>
 </section>
@@ -317,7 +317,7 @@ footer .links { display: flex; gap: 1.5rem; justify-content: center; margin-bott
 <!-- Benchmarks -->
 <section id="benchmarks">
   <h2>Benchmarks</h2>
-  <p class="subtitle">Tested on Apple M4 Max (48 GB) with eight Qwen3 quantized model variants</p>
+  <p class="subtitle">Tested on Apple M1 Max (32 GB) with eight Qwen3 quantized model variants. The data tells an honest story: MLX's defaults are hard to beat.</p>
 
   <!-- Loading Speed Chart -->
   <div class="chart-container">
@@ -456,14 +456,14 @@ response = generate(
   <p class="subtitle">Read the full technical report</p>
   <div class="paper-box">
     <div class="paper-info">
-      <h3>OptMLX: Zero-Copy Memory-Mapped Loading and KV Cache Pre-Allocation for MLX on Apple Silicon</h3>
+      <h3>Exploring Zero-Copy mmap Loading and KV Cache Pre-Allocation for MLX on Apple Silicon</h3>
       <p>AtomGradient, 2025</p>
-      <p>A comprehensive technical report covering the design, implementation, and evaluation of memory optimizations for the MLX framework on Apple Silicon.</p>
+      <p>An exploratory study on whether llama.cpp's memory management strategies can improve MLX. Includes implementation details, benchmark data across 8 models, and analysis of why MLX's existing design is already well-suited to its use case.</p>
       <a href="paper/paper.pdf" style="display: inline-block; background: var(--accent); color: #fff; padding: 0.5rem 1.5rem; border-radius: 8px; font-weight: 600; text-decoration: none;">Download PDF</a>
     </div>
     <div class="bibtex">@article{optmlx2025,
-  title   = {OptMLX: Zero-Copy Memory-Mapped
-             Loading and KV Cache Pre-Allocation
+  title   = {Exploring Zero-Copy mmap Loading
+             and KV Cache Pre-Allocation
              for MLX on Apple Silicon},
   author  = {AtomGradient},
   year    = {2025},
