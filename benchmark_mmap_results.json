@@ -1,0 +1,138 @@
+[
+  {
+    "model": "Qwen3-4B-4bit",
+    "size_gb": 2.11,
+    "standard_avg": 0.101,
+    "mmap_avg": 0.131,
+    "speedup": 0.77,
+    "standard_runs": [
+      0.101,
+      0.1,
+      0.102
+    ],
+    "mmap_runs": [
+      0.131,
+      0.132,
+      0.13
+    ]
+  },
+  {
+    "model": "Qwen3-4B-8bit",
+    "size_gb": 3.98,
+    "standard_avg": 0.184,
+    "mmap_avg": 0.246,
+    "speedup": 0.75,
+    "standard_runs": [
+      0.183,
+      0.185,
+      0.185
+    ],
+    "mmap_runs": [
+      0.245,
+      0.248,
+      0.245
+    ]
+  },
+  {
+    "model": "Qwen3-8B-3bit",
+    "size_gb": 3.34,
+    "standard_avg": 0.146,
+    "mmap_avg": 0.075,
+    "speedup": 1.95,
+    "standard_runs": [
+      0.123,
+      0.158,
+      0.156
+    ],
+    "mmap_runs": [
+      0.072,
+      0.072,
+      0.08
+    ]
+  },
+  {
+    "model": "Qwen3-8B-4bit",
+    "size_gb": 4.29,
+    "standard_avg": 0.352,
+    "mmap_avg": 0.328,
+    "speedup": 1.07,
+    "standard_runs": [
+      0.656,
+      0.203,
+      0.197
+    ],
+    "mmap_runs": [
+      0.326,
+      0.332,
+      0.327
+    ]
+  },
+  {
+    "model": "Qwen3-8B-6bit",
+    "size_gb": 6.2,
+    "standard_avg": 0.637,
+    "mmap_avg": 0.435,
+    "speedup": 1.46,
+    "standard_runs": [
+      1.367,
+      0.269,
+      0.275
+    ],
+    "mmap_runs": [
+      0.428,
+      0.417,
+      0.46
+    ]
+  },
+  {
+    "model": "Qwen3-8B-8bit",
+    "size_gb": 8.11,
+    "standard_avg": 2.572,
+    "mmap_avg": 0.125,
+    "speedup": 20.65,
+    "standard_runs": [
+      3.088,
+      2.818,
+      1.81
+    ],
+    "mmap_runs": [
+      0.132,
+      0.12,
+      0.122
+    ]
+  },
+  {
+    "model": "Qwen3-14B-4bit",
+    "size_gb": 7.74,
+    "standard_avg": 2.323,
+    "mmap_avg": 0.535,
+    "speedup": 4.34,
+    "standard_runs": [
+      2.547,
+      2.55,
+      1.872
+    ],
+    "mmap_runs": [
+      0.7,
+      0.601,
+      0.303
+    ]
+  },
+  {
+    "model": "Qwen3-14B-6bit",
+    "size_gb": 11.18,
+    "standard_avg": 3.701,
+    "mmap_avg": 5.388,
+    "speedup": 0.69,
+    "standard_runs": [
+      4.119,
+      3.73,
+      3.254
+    ],
+    "mmap_runs": [
+      4.119,
+      6.686,
+      5.359
+    ]
+  }
+]

@@ -1,0 +1,378 @@
+[
+  {
+    "model": "Qwen3-4B-4bit",
+    "standard": {
+      "load_time": 0.894,
+      "avg_prompt_tps": 189.1,
+      "avg_gen_tps": 56.9,
+      "avg_peak_memory": 2.38,
+      "runs": [
+        {
+          "prompt_tps": 183.69322004668462,
+          "generation_tps": 56.74835607754224,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 2.384395752
+        },
+        {
+          "prompt_tps": 194.49085545840634,
+          "generation_tps": 57.048777596240356,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 2.384395752
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 0.848,
+      "avg_prompt_tps": 188.6,
+      "avg_gen_tps": 58.5,
+      "avg_peak_memory": 2.38,
+      "runs": [
+        {
+          "prompt_tps": 184.23565908407284,
+          "generation_tps": 57.79492494890956,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 2.384395752
+        },
+        {
+          "prompt_tps": 192.94465740340686,
+          "generation_tps": 59.18492080670941,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 2.384395752
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-4B-8bit",
+    "standard": {
+      "load_time": 1.313,
+      "avg_prompt_tps": 165.8,
+      "avg_gen_tps": 41.0,
+      "avg_peak_memory": 4.37,
+      "runs": [
+        {
+          "prompt_tps": 163.4575439671016,
+          "generation_tps": 41.90734213025599,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        },
+        {
+          "prompt_tps": 168.22168649527924,
+          "generation_tps": 40.16207808232903,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 0.981,
+      "avg_prompt_tps": 159.7,
+      "avg_gen_tps": 42.0,
+      "avg_peak_memory": 4.37,
+      "runs": [
+        {
+          "prompt_tps": 153.18322605586343,
+          "generation_tps": 41.1109254591762,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        },
+        {
+          "prompt_tps": 166.24192831785757,
+          "generation_tps": 42.87733195824196,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-8B-3bit",
+    "standard": {
+      "load_time": 1.22,
+      "avg_prompt_tps": 100.8,
+      "avg_gen_tps": 29.9,
+      "avg_peak_memory": 4.37,
+      "runs": [
+        {
+          "prompt_tps": 102.70817285204694,
+          "generation_tps": 30.23736768293157,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        },
+        {
+          "prompt_tps": 98.84489564203379,
+          "generation_tps": 29.567937953739793,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 0.692,
+      "avg_prompt_tps": 92.3,
+      "avg_gen_tps": 29.4,
+      "avg_peak_memory": 4.37,
+      "runs": [
+        {
+          "prompt_tps": 93.24892612350287,
+          "generation_tps": 29.392764410340515,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        },
+        {
+          "prompt_tps": 91.35524157417863,
+          "generation_tps": 29.329626474468366,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.3731511
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-8B-4bit",
+    "standard": {
+      "load_time": 1.341,
+      "avg_prompt_tps": 89.8,
+      "avg_gen_tps": 30.1,
+      "avg_peak_memory": 4.72,
+      "runs": [
+        {
+          "prompt_tps": 86.29863261103841,
+          "generation_tps": 30.739132429480627,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.719470972
+        },
+        {
+          "prompt_tps": 93.34462027185471,
+          "generation_tps": 29.42714706326276,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 4.719470972
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 1.03,
+      "avg_prompt_tps": 100.7,
+      "avg_gen_tps": 30.1,
+      "avg_peak_memory": 8.82,
+      "runs": [
+        {
+          "prompt_tps": 97.32584140456628,
+          "generation_tps": 29.097529572456782,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        },
+        {
+          "prompt_tps": 104.15124405046593,
+          "generation_tps": 31.035482781797345,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-8B-6bit",
+    "standard": {
+      "load_time": 2.004,
+      "avg_prompt_tps": 86.7,
+      "avg_gen_tps": 20.7,
+      "avg_peak_memory": 8.82,
+      "runs": [
+        {
+          "prompt_tps": 80.49648965800816,
+          "generation_tps": 20.76629766945904,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        },
+        {
+          "prompt_tps": 92.99052035187754,
+          "generation_tps": 20.729122259647344,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 1.29,
+      "avg_prompt_tps": 75.7,
+      "avg_gen_tps": 20.7,
+      "avg_peak_memory": 8.82,
+      "runs": [
+        {
+          "prompt_tps": 83.3804819304945,
+          "generation_tps": 20.60860579110584,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        },
+        {
+          "prompt_tps": 67.9951439228999,
+          "generation_tps": 20.82454463579483,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-8B-8bit",
+    "standard": {
+      "load_time": 3.041,
+      "avg_prompt_tps": 64.4,
+      "avg_gen_tps": 21.6,
+      "avg_peak_memory": 8.82,
+      "runs": [
+        {
+          "prompt_tps": 62.98714209367431,
+          "generation_tps": 21.441143020856497,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        },
+        {
+          "prompt_tps": 65.84065689589553,
+          "generation_tps": 21.85510731262784,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.824290768
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 0.771,
+      "avg_prompt_tps": 80.6,
+      "avg_gen_tps": 21.3,
+      "avg_peak_memory": 8.84,
+      "runs": [
+        {
+          "prompt_tps": 79.48824383849876,
+          "generation_tps": 21.53019307483203,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.84139598
+        },
+        {
+          "prompt_tps": 81.72024323097499,
+          "generation_tps": 21.10593276148283,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.84139598
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-14B-4bit",
+    "standard": {
+      "load_time": 1.954,
+      "avg_prompt_tps": 43.4,
+      "avg_gen_tps": 16.2,
+      "avg_peak_memory": 8.84,
+      "runs": [
+        {
+          "prompt_tps": 44.47346119777403,
+          "generation_tps": 16.429408044833156,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.84139598
+        },
+        {
+          "prompt_tps": 42.22790932251825,
+          "generation_tps": 16.01156173481451,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 8.84139598
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 1.01,
+      "avg_prompt_tps": 43.2,
+      "avg_gen_tps": 16.5,
+      "avg_peak_memory": 11.09,
+      "runs": [
+        {
+          "prompt_tps": 44.024530473488596,
+          "generation_tps": 16.692579810247036,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 11.092151038
+        },
+        {
+          "prompt_tps": 42.44189216873633,
+          "generation_tps": 16.399113534536973,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 11.092151038
+        }
+      ]
+    }
+  },
+  {
+    "model": "Qwen3-14B-6bit",
+    "standard": {
+      "load_time": 3.407,
+      "avg_prompt_tps": 39.7,
+      "avg_gen_tps": 12.1,
+      "avg_peak_memory": 12.08,
+      "runs": [
+        {
+          "prompt_tps": 38.127744592629114,
+          "generation_tps": 12.074832658236717,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 12.08352588
+        },
+        {
+          "prompt_tps": 41.3357024364947,
+          "generation_tps": 12.203477271772847,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 12.08352588
+        }
+      ]
+    },
+    "mmap": {
+      "load_time": 3.068,
+      "avg_prompt_tps": 37.0,
+      "avg_gen_tps": 12.0,
+      "avg_peak_memory": 12.16,
+      "runs": [
+        {
+          "prompt_tps": 39.04715187633291,
+          "generation_tps": 12.042637046301184,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 12.155279612
+        },
+        {
+          "prompt_tps": 34.939513310534686,
+          "generation_tps": 11.895061057646403,
+          "prompt_tokens": 34,
+          "generation_tokens": 200,
+          "peak_memory": 12.155279612
+        }
+      ]
+    }
+  }
+]
