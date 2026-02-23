@@ -19,6 +19,8 @@
 \usepackage{fancyhdr}
 \usepackage{url}
 \usepackage{multirow}
+\usepackage{needspace}
+\usepackage{placeins}
 
 \pgfplotsset{compat=1.18}
 \tolerance=1000
@@ -190,9 +192,12 @@ When \texttt{mx.load(path,\allowbreak{} use\_mmap=True)} is called, the Python b
 
 \subsubsection{MmapReader}
 
-The \texttt{MmapReader} class encapsulates the POSIX mmap lifecycle:
+The \texttt{MmapReader} class (Listing~1) encapsulates the POSIX mmap lifecycle.
+The file descriptor is opened, the file is mapped into virtual memory with \texttt{MAP\_PRIVATE} (copy-on-write semantics), and the descriptor is immediately closed---the mapping persists independently.
+The \texttt{MADV\_SEQUENTIAL} hint enables kernel readahead for sequential tensor access.
+A Metal buffer is then lazily created over the mmap region via \texttt{allocator::make\_buffer()}, exploiting UMA for zero-copy GPU access.
 
-\begin{lstlisting}[language=C++, caption={MmapReader constructor (simplified).}]
+\begin{lstlisting}[language=C++, caption={MmapReader constructor (simplified).}, float=tp]
 MmapReader::MmapReader(std::string file_path) {
   int fd = open(file_path.c_str(), O_RDONLY);
   struct stat st;
@@ -205,15 +210,11 @@ MmapReader::MmapReader(std::string file_path) {
 }
 \end{lstlisting}
 
-\texttt{MAP\_PRIVATE} provides copy-on-write semantics.
-The \texttt{MADV\_SEQUENTIAL} hint enables kernel readahead.
-A Metal buffer is lazily created over the mmap region via \texttt{allocator::make\_buffer()}, exploiting UMA for zero-copy GPU access.
-
 \subsubsection{Alignment Check and Fallback}
 
-The critical zero-copy path in \texttt{Load::eval\_cpu()} requires an alignment check:
+The critical zero-copy path in \texttt{Load::eval\_cpu()} (Listing~2) creates offset views into the mmap buffer, but requires a careful alignment check.
 
-\begin{lstlisting}[language=C++, caption={Zero-copy path with alignment guard (simplified).}]
+\begin{lstlisting}[language=C++, caption={Zero-copy path with alignment guard (simplified).}, float=tp]
 if (reader_->is_mmap() && !swap_endianness_) {
   auto mmap_reader = dynamic_pointer_cast<MmapReader>(reader_);
   if (mmap_reader && (offset_ % out.itemsize() == 0)) {
@@ -235,7 +236,9 @@ The lifecycle of the \texttt{MmapReader} is managed by capturing a \texttt{share
 \subsection{KV Cache Pre-Allocation}
 \label{sec:prealloc}
 
-Figure~\ref{fig:kv_comparison} contrasts the two approaches: MLX's default dynamic growth (staircase) versus pre-allocation (flat line).
+In MLX's default implementation, the KV cache starts as \texttt{None} and grows in 256-token steps.
+Each expansion allocates a new buffer and copies existing data, producing the staircase pattern shown in Figure~\ref{fig:kv_comparison}.
+Our pre-allocation approach reserves the full context window at startup, yielding a flat memory profile at the cost of higher initial usage.
 
 \begin{figure}[t]
 \centering
@@ -267,9 +270,18 @@ Figure~\ref{fig:kv_comparison} contrasts the two approaches: MLX's default dynam
 \label{fig:kv_comparison}
 \end{figure}
 
-Pre-allocation is implemented in the \texttt{KVCache} constructor:
+\FloatBarrier
 
-\begin{lstlisting}[language=Python, caption={KVCache pre-allocation (simplified).}]
+\subsubsection{Implementation}
+
+Pre-allocation is controlled by three parameters added to the \texttt{KVCache} constructor: \texttt{n\_kv\_heads}, \texttt{head\_dim}, and \texttt{max\_context\_length}.
+All default to zero, ensuring full backward compatibility---existing code without these parameters continues to use dynamic growth.
+When all three are positive, the constructor allocates keys and values tensors for the full context length, aligned to the 256-token step boundary.
+The \texttt{mx.eval()} call forces immediate physical allocation, bypassing MLX's lazy evaluation.
+If the sequence later exceeds the pre-allocated length, the cache gracefully falls back to dynamic expansion via concatenation.
+Listing~3 shows the simplified implementation.
+
+\begin{lstlisting}[language=Python, caption={KVCache pre-allocation (simplified).}, float=tp]
 class KVCache(_BaseCache):
     step = 256
     def __init__(self, n_kv_heads=0, head_dim=0,
@@ -283,10 +295,6 @@ class KVCache(_BaseCache):
                 (1, n_kv_heads, L, head_dim), dtype=dtype)
             mx.eval(self.keys, self.values)  # Force alloc
 \end{lstlisting}
-
-All parameters default to zero for backward compatibility.
-The \texttt{mx.eval()} call forces immediate physical allocation, bypassing lazy evaluation.
-If the sequence exceeds the pre-allocated length, the cache gracefully falls back to dynamic expansion.
 
 \subsection{Quantized Model dtype Bug}
 \label{sec:dtype_fix}
@@ -569,7 +577,7 @@ The design choices that differ from llama.cpp are not oversights but rather appr
 We hope this exploration is useful to others considering similar optimizations, and that our benchmark data and implementation details serve as a reference.
 During this work, we also identified and fixed a quantized model dtype inference bug, which we consider the most practically useful contribution of this project.
 
-All code and benchmark data are available at \url{https://github.com/optmlx/OptMLX}.
+All code and benchmark data are available at \url{https://github.com/AtomGradient/OptMLX}.
 
 % ============================================================
 % References
