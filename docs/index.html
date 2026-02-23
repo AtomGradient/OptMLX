@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OptMLX - Zero-Copy Loading & KV Cache Pre-Allocation for MLX</title>
+<style>
+/* ---- Reset & Base ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+  --fg: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
+  --accent: #58a6ff; --accent2: #3fb950; --accent3: #d29922;
+  --red: #f85149; --border: #30363d;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  --max-w: 1100px;
+}
+[data-theme="light"] {
+  --bg: #ffffff; --bg2: #f6f8fa; --bg3: #eaeef2;
+  --fg: #1f2328; --fg2: #656d76; --fg3: #afb8c1;
+  --accent: #0969da; --accent2: #1a7f37; --accent3: #9a6700;
+  --red: #cf222e; --border: #d0d7de;
+}
+html { scroll-behavior: smooth; }
+body { font-family: var(--font); background: var(--bg); color: var(--fg); line-height: 1.6; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Nav ---- */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+nav .inner {
+  max-width: var(--max-w); margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+}
+nav .logo { font-weight: 700; font-size: 1.2rem; color: var(--fg); }
+nav .logo span { color: var(--accent); }
+nav .links { display: flex; gap: 1.5rem; align-items: center; }
+nav .links a { color: var(--fg2); font-size: 0.9rem; }
+nav .links a:hover { color: var(--fg); text-decoration: none; }
+.theme-toggle {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--fg2); cursor: pointer; padding: 0.3rem 0.6rem; font-size: 0.85rem;
+}
+
+/* ---- Hero ---- */
+.hero {
+  text-align: center; padding: 5rem 1.5rem 4rem;
+  background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+}
+.hero h1 { font-size: 3rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -0.02em; }
+.hero h1 span { color: var(--accent); }
+.hero .tagline { font-size: 1.25rem; color: var(--fg2); max-width: 700px; margin: 0 auto 2rem; }
+.badges { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+.badge {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 999px;
+  padding: 0.5rem 1.2rem; font-size: 0.9rem; font-weight: 600;
+}
+.badge .num { color: var(--accent); font-size: 1.1rem; }
+.badge.green .num { color: var(--accent2); }
+.badge.yellow .num { color: var(--accent3); }
+
+/* ---- Sections ---- */
+section { max-width: var(--max-w); margin: 0 auto; padding: 4rem 1.5rem; }
+section h2 {
+  font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;
+  border-bottom: 2px solid var(--border); padding-bottom: 0.5rem;
+}
+section .subtitle { color: var(--fg2); margin-bottom: 2rem; }
+
+/* ---- Feature Cards ---- */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+.card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.75rem; transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--accent); }
+.card .icon { font-size: 2rem; margin-bottom: 0.75rem; }
+.card h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+.card p { color: var(--fg2); font-size: 0.95rem; }
+
+/* ---- Architecture ---- */
+.arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+@media (max-width: 768px) { .arch-grid { grid-template-columns: 1fr; } }
+.arch-box {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.5rem; overflow-x: auto;
+}
+.arch-box h3 { margin-bottom: 1rem; font-size: 1.1rem; }
+.arch-box svg { width: 100%; height: auto; }
+
+/* ---- Tables ---- */
+.table-wrap { overflow-x: auto; margin-bottom: 2rem; }
+table {
+  width: 100%; border-collapse: collapse;
+  background: var(--bg2); border-radius: 8px; overflow: hidden;
+  font-size: 0.9rem;
+}
+thead { background: var(--bg3); }
+th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--fg2); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+td { font-family: var(--mono); font-size: 0.85rem; }
+tr:last-child td { border-bottom: none; }
+.highlight { color: var(--accent); font-weight: 700; }
+.slow { color: var(--red); }
+
+/* ---- Chart ---- */
+.chart-container {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.5rem; margin-bottom: 2rem;
+}
+.chart-container h3 { margin-bottom: 1rem; }
+canvas { width: 100% !important; height: 300px !important; }
+
+/* ---- Code ---- */
+.code-section { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media (max-width: 768px) { .code-section { grid-template-columns: 1fr; } }
+.code-block {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden;
+}
+.code-block .header {
+  background: var(--bg3); padding: 0.5rem 1rem;
+  font-size: 0.8rem; color: var(--fg2); font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.code-block pre {
+  padding: 1rem; margin: 0; overflow-x: auto;
+  font-family: var(--mono); font-size: 0.85rem; line-height: 1.5; color: var(--fg);
+}
+.code-block .kw { color: var(--accent); }
+.code-block .str { color: var(--accent2); }
+.code-block .cmt { color: var(--fg3); }
+
+/* ---- Paper Section ---- */
+.paper-box {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 2rem; display: flex; gap: 2rem; align-items: flex-start;
+}
+@media (max-width: 768px) { .paper-box { flex-direction: column; } }
+.paper-info { flex: 1; }
+.paper-info h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+.paper-info p { color: var(--fg2); font-size: 0.95rem; margin-bottom: 1rem; }
+.bibtex {
+  background: var(--bg3); border-radius: 8px; padding: 1rem;
+  font-family: var(--mono); font-size: 0.8rem; line-height: 1.5;
+  overflow-x: auto; white-space: pre; flex: 1; min-width: 0;
+}
+
+/* ---- Footer ---- */
+footer {
+  border-top: 1px solid var(--border); padding: 2rem 1.5rem;
+  text-align: center; color: var(--fg2); font-size: 0.85rem;
+}
+footer a { color: var(--fg2); }
+footer .links { display: flex; gap: 1.5rem; justify-content: center; margin-bottom: 0.5rem; }
+
+/* ---- Responsive ---- */
+@media (max-width: 600px) {
+  .hero h1 { font-size: 2rem; }
+  .hero .tagline { font-size: 1rem; }
+  section h2 { font-size: 1.5rem; }
+  .badges { flex-direction: column; align-items: center; }
+  nav .links { gap: 0.75rem; }
+}
+</style>
+</head>
+<body data-theme="dark">
+
+<!-- Navigation -->
+<nav>
+  <div class="inner">
+    <div class="logo"><span>Opt</span>MLX</div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#paper">Paper</a>
+      <button class="theme-toggle" onclick="toggleTheme()">Toggle Theme</button>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <h1><span>Opt</span>MLX</h1>
+  <p class="tagline">Zero-copy model loading &amp; KV cache pre-allocation for MLX on Apple Silicon</p>
+  <div class="badges">
+    <div class="badge"><span class="num">20x</span> Faster Loading</div>
+    <div class="badge green"><span class="num">0%</span> Inference Overhead</div>
+    <div class="badge yellow"><span class="num">1</span> Quantized Bug Fixed</div>
+  </div>
+</div>
+
+<!-- Features -->
+<section id="features">
+  <h2>Features</h2>
+  <p class="subtitle">Three targeted optimizations to close the gap with llama.cpp</p>
+  <div class="cards">
+    <div class="card">
+      <div class="icon">&#x1F5FA;&#xFE0F;</div>
+      <h3>mmap Zero-Copy Loading</h3>
+      <p>Memory-map safetensors files and create Metal buffers directly over the mapped region. Apple Silicon's UMA ensures CPU and GPU share the same physical copy&mdash;no data transfer needed. Up to 20.65x faster for large models.</p>
+    </div>
+    <div class="card">
+      <div class="icon">&#x1F4E6;</div>
+      <h3>KV Cache Pre-Allocation</h3>
+      <p>Reserve the full context window at startup with a single deterministic allocation. Eliminates the staircase memory growth pattern, providing flat and predictable memory usage during inference.</p>
+    </div>
+    <div class="card">
+      <div class="icon">&#x1F41B;</div>
+      <h3>Quantized dtype Fix</h3>
+      <p>Fixed a bug where QuantizedLinear layers report uint32 (packed storage type) as their dtype instead of the actual working precision. The fix uses scales.dtype for correct inference.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p class="subtitle">How zero-copy loading and KV pre-allocation work under the hood</p>
+  <div class="arch-grid">
+    <div class="arch-box">
+      <h3>mmap Zero-Copy Data Flow</h3>
+      <svg viewBox="0 0 460 320" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+        <!-- Boxes -->
+        <rect x="10" y="20" width="130" height="50" rx="8" fill="var(--bg3)" stroke="var(--border)"/>
+        <text x="75" y="42" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="600">Safetensors File</text>
+        <text x="75" y="58" text-anchor="middle" fill="var(--fg2)" font-size="10">on Disk</text>
+
+        <rect x="170" y="20" width="120" height="50" rx="8" fill="var(--bg3)" stroke="var(--border)"/>
+        <text x="230" y="42" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="600">mmap()</text>
+        <text x="230" y="58" text-anchor="middle" fill="var(--fg2)" font-size="10">Virtual Memory</text>
+
+        <rect x="320" y="20" width="130" height="50" rx="8" fill="var(--bg3)" stroke="var(--accent)"/>
+        <text x="385" y="42" text-anchor="middle" fill="var(--accent)" font-size="12" font-weight="600">Metal Buffer</text>
+        <text x="385" y="58" text-anchor="middle" fill="var(--fg2)" font-size="10">UMA Shared</text>
+
+        <rect x="240" y="120" width="140" height="50" rx="8" fill="var(--bg3)" stroke="var(--border)"/>
+        <text x="310" y="142" text-anchor="middle" fill="var(--fg)" font-size="12" font-weight="600">Parent Array</text>
+        <text x="310" y="158" text-anchor="middle" fill="var(--fg2)" font-size="10">uint8 over mmap</text>
+
+        <rect x="140" y="220" width="130" height="50" rx="8" fill="var(--bg3)" stroke="var(--accent2)"/>
+        <text x="205" y="242" text-anchor="middle" fill="var(--accent2)" font-size="12" font-weight="600">Tensor A</text>
+        <text x="205" y="258" text-anchor="middle" fill="var(--fg2)" font-size="10">offset view</text>
+
+        <rect x="300" y="220" width="130" height="50" rx="8" fill="var(--bg3)" stroke="var(--accent2)"/>
+        <text x="365" y="242" text-anchor="middle" fill="var(--accent2)" font-size="12" font-weight="600">Tensor B</text>
+        <text x="365" y="258" text-anchor="middle" fill="var(--fg2)" font-size="10">offset view</text>
+
+        <!-- Arrows -->
+        <line x1="140" y1="45" x2="170" y2="45" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="290" y1="45" x2="320" y2="45" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="385" y1="70" x2="340" y2="120" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="280" y1="170" x2="230" y2="220" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="340" y1="170" x2="365" y2="220" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+
+        <!-- Labels -->
+        <text x="155" y="38" text-anchor="middle" fill="var(--fg3)" font-size="9">MAP_PRIVATE</text>
+        <text x="305" y="38" text-anchor="middle" fill="var(--fg3)" font-size="9">zero-copy</text>
+
+        <!-- Note -->
+        <text x="230" y="300" text-anchor="middle" fill="var(--fg3)" font-size="10" font-style="italic">CPU &amp; GPU share same physical memory (UMA)</text>
+      </svg>
+    </div>
+    <div class="arch-box">
+      <h3>KV Cache: Dynamic vs Pre-Allocated</h3>
+      <svg viewBox="0 0 460 320" xmlns="http://www.w3.org/2000/svg">
+        <!-- Grid -->
+        <line x1="60" y1="20" x2="60" y2="260" stroke="var(--border)" stroke-width="1"/>
+        <line x1="60" y1="260" x2="440" y2="260" stroke="var(--border)" stroke-width="1"/>
+        <!-- Y axis labels -->
+        <text x="50" y="260" text-anchor="end" fill="var(--fg3)" font-size="10">0</text>
+        <text x="50" y="200" text-anchor="end" fill="var(--fg3)" font-size="10">256</text>
+        <text x="50" y="140" text-anchor="end" fill="var(--fg3)" font-size="10">512</text>
+        <text x="50" y="80" text-anchor="end" fill="var(--fg3)" font-size="10">768</text>
+        <text x="50" y="30" text-anchor="end" fill="var(--fg3)" font-size="10">MB</text>
+        <!-- X axis labels -->
+        <text x="60" y="278" fill="var(--fg3)" font-size="10">0</text>
+        <text x="155" y="278" fill="var(--fg3)" font-size="10">1024</text>
+        <text x="250" y="278" fill="var(--fg3)" font-size="10">2048</text>
+        <text x="345" y="278" fill="var(--fg3)" font-size="10">3072</text>
+        <text x="430" y="278" fill="var(--fg3)" font-size="10">4096</text>
+        <text x="250" y="300" text-anchor="middle" fill="var(--fg3)" font-size="10">Tokens Generated</text>
+        <!-- Grid lines -->
+        <line x1="60" y1="200" x2="440" y2="200" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4"/>
+        <line x1="60" y1="140" x2="440" y2="140" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4"/>
+        <line x1="60" y1="80" x2="440" y2="80" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4"/>
+        <!-- Dynamic (staircase) -->
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2.5"
+          points="60,260 60,200 108,200 108,140 155,140 155,80 203,80 203,45 250,45 250,30 298,30 298,25"/>
+        <!-- Pre-allocated (flat) -->
+        <line x1="60" y1="25" x2="440" y2="25" stroke="var(--red)" stroke-width="2.5" stroke-dasharray="8,4"/>
+        <!-- Legend -->
+        <rect x="280" y="100" width="150" height="55" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+        <line x1="290" y1="118" x2="315" y2="118" stroke="var(--accent)" stroke-width="2.5"/>
+        <text x="322" y="122" fill="var(--fg)" font-size="11">Dynamic</text>
+        <line x1="290" y1="140" x2="315" y2="140" stroke="var(--red)" stroke-width="2.5" stroke-dasharray="8,4"/>
+        <text x="322" y="144" fill="var(--fg)" font-size="11">Pre-allocated</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- Benchmarks -->
+<section id="benchmarks">
+  <h2>Benchmarks</h2>
+  <p class="subtitle">Tested on Apple M4 Max (48 GB) with eight Qwen3 quantized model variants</p>
+
+  <!-- Loading Speed Chart -->
+  <div class="chart-container">
+    <h3>Model Loading Speed</h3>
+    <canvas id="loadingChart"></canvas>
+  </div>
+
+  <!-- Loading Speed Table -->
+  <h3 style="margin-bottom: 1rem;">Loading Time Comparison</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Model</th><th>Size (GB)</th><th>Standard (s)</th><th>Mmap (s)</th><th>Speedup</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Qwen3-4B-4bit</td><td>2.11</td><td>0.101</td><td>0.131</td><td class="slow">0.77x</td></tr>
+        <tr><td>Qwen3-4B-8bit</td><td>3.98</td><td>0.184</td><td>0.246</td><td class="slow">0.75x</td></tr>
+        <tr><td>Qwen3-8B-3bit</td><td>3.34</td><td>0.146</td><td>0.075</td><td class="highlight">1.95x</td></tr>
+        <tr><td>Qwen3-8B-4bit</td><td>4.29</td><td>0.352</td><td>0.328</td><td>1.07x</td></tr>
+        <tr><td>Qwen3-8B-6bit</td><td>6.20</td><td>0.637</td><td>0.435</td><td class="highlight">1.46x</td></tr>
+        <tr><td>Qwen3-8B-8bit</td><td>8.11</td><td>2.572</td><td>0.125</td><td class="highlight">20.65x</td></tr>
+        <tr><td>Qwen3-14B-4bit</td><td>7.74</td><td>2.323</td><td>0.535</td><td class="highlight">4.34x</td></tr>
+        <tr><td>Qwen3-14B-6bit</td><td>11.18</td><td>3.701</td><td>5.388</td><td class="slow">0.69x</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Inference Impact Table -->
+  <h3 style="margin-bottom: 1rem;">Inference Performance (mmap vs Standard)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th colspan="2">Load Time (s)</th>
+          <th colspan="2">Prompt (t/s)</th>
+          <th colspan="2">Generation (t/s)</th>
+          <th colspan="2">Peak Mem (GB)</th>
+        </tr>
+        <tr>
+          <th></th><th>Std</th><th>Mmap</th><th>Std</th><th>Mmap</th><th>Std</th><th>Mmap</th><th>Std</th><th>Mmap</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>4B-4bit</td><td>0.89</td><td>0.85</td><td>189.1</td><td>188.6</td><td>56.9</td><td>58.5</td><td>2.38</td><td>2.38</td></tr>
+        <tr><td>4B-8bit</td><td>1.31</td><td>0.98</td><td>165.8</td><td>159.7</td><td>41.0</td><td>42.0</td><td>4.37</td><td>4.37</td></tr>
+        <tr><td>8B-3bit</td><td>1.22</td><td>0.69</td><td>100.8</td><td>92.3</td><td>29.9</td><td>29.4</td><td>4.37</td><td>4.37</td></tr>
+        <tr><td>8B-4bit</td><td>1.34</td><td>1.03</td><td>89.8</td><td>100.7</td><td>30.1</td><td>30.1</td><td>4.72</td><td>8.82*</td></tr>
+        <tr><td>8B-6bit</td><td>2.00</td><td>1.29</td><td>86.7</td><td>75.7</td><td>20.7</td><td>20.7</td><td>8.82</td><td>8.82</td></tr>
+        <tr><td>8B-8bit</td><td>3.04</td><td>0.77</td><td>64.4</td><td>80.6</td><td>21.6</td><td>21.3</td><td>8.82</td><td>8.84</td></tr>
+        <tr><td>14B-4bit</td><td>1.95</td><td>1.01</td><td>43.4</td><td>43.2</td><td>16.2</td><td>16.5</td><td>8.84</td><td>11.09*</td></tr>
+        <tr><td>14B-6bit</td><td>3.41</td><td>3.07</td><td>39.7</td><td>37.0</td><td>12.1</td><td>12.0</td><td>12.08</td><td>12.16</td></tr>
+      </tbody>
+    </table>
+    <p style="color: var(--fg3); font-size: 0.8rem; margin-top: 0.5rem;">* Memory doubling observed &mdash; likely due to mmap region coexisting with materialized tensor copies.</p>
+  </div>
+
+  <!-- KV Pre-allocation Table -->
+  <h3 style="margin-bottom: 1rem;">KV Cache Pre-Allocation Impact</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Model</th><th>Mode</th><th>FTLT (ms)</th><th>Prompt (t/s)</th><th>Gen (t/s)</th><th>Peak Mem (GB)</th><th>+Mem (GB)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="3">Qwen3-4B-4bit</td><td>Dynamic</td><td>260.4</td><td>200.4</td><td>62.0</td><td>2.221</td><td>&mdash;</td></tr>
+        <tr><td>Pre-alloc 2k</td><td>276.2</td><td>183.5</td><td>63.0</td><td>2.471</td><td>+0.250</td></tr>
+        <tr><td>Pre-alloc 4k</td><td>285.2</td><td>171.9</td><td>62.3</td><td>2.736</td><td>+0.515</td></tr>
+        <tr style="border-top: 2px solid var(--border);"><td rowspan="3">Qwen3-8B-4bit</td><td>Dynamic</td><td>419.2</td><td>100.5</td><td>31.3</td><td>4.395</td><td>&mdash;</td></tr>
+        <tr><td>Pre-alloc 2k</td><td>428.0</td><td>99.1</td><td>30.3</td><td>4.633</td><td>+0.238</td></tr>
+        <tr><td>Pre-alloc 4k</td><td>436.1</td><td>98.0</td><td>29.7</td><td>4.908</td><td>+0.513</td></tr>
+        <tr style="border-top: 2px solid var(--border);"><td rowspan="3">Qwen3-14B-4bit</td><td>Dynamic</td><td>859.6</td><td>44.1</td><td>16.7</td><td>7.827</td><td>&mdash;</td></tr>
+        <tr><td>Pre-alloc 2k</td><td>917.4</td><td>41.1</td><td>16.0</td><td>8.101</td><td>+0.274</td></tr>
+        <tr><td>Pre-alloc 4k</td><td>901.5</td><td>41.7</td><td>16.1</td><td>8.414</td><td>+0.587</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section id="quickstart">
+  <h2>Quick Start</h2>
+  <p class="subtitle">Get started with OptMLX in seconds</p>
+  <div class="code-section">
+    <div class="code-block">
+      <div class="header">CLI Usage</div>
+      <pre><span class="cmt"># Zero-copy mmap loading</span>
+python -m mlx_lm.generate \
+  --model Qwen/Qwen3-8B-MLX-4bit \
+  <span class="kw">--use-mmap</span> \
+  --prompt <span class="str">"Explain quantum computing"</span>
+
+<span class="cmt"># KV cache pre-allocation (4096 tokens)</span>
+python -m mlx_lm.generate \
+  --model Qwen/Qwen3-8B-MLX-4bit \
+  <span class="kw">--pre-allocate-kv 4096</span> \
+  --prompt <span class="str">"Write a long essay about AI"</span>
+
+<span class="cmt"># Both optimizations combined</span>
+python -m mlx_lm.generate \
+  --model Qwen/Qwen3-8B-MLX-4bit \
+  <span class="kw">--use-mmap --pre-allocate-kv 4096</span> \
+  --prompt <span class="str">"Hello!"</span></pre>
+    </div>
+    <div class="code-block">
+      <div class="header">Python API</div>
+      <pre><span class="kw">import</span> mlx.core <span class="kw">as</span> mx
+<span class="kw">from</span> mlx_lm <span class="kw">import</span> load, generate
+<span class="kw">from</span> mlx_lm.models.cache <span class="kw">import</span> make_prompt_cache
+
+<span class="cmt"># Load with mmap zero-copy</span>
+model, tokenizer = load(
+    <span class="str">"Qwen/Qwen3-8B-MLX-4bit"</span>,
+    <span class="kw">use_mmap=True</span>
+)
+
+<span class="cmt"># Create pre-allocated KV cache</span>
+cache = make_prompt_cache(
+    model,
+    <span class="kw">max_context_length=4096</span>
+)
+
+<span class="cmt"># Generate with optimized cache</span>
+response = generate(
+    model, tokenizer,
+    prompt=<span class="str">"Hello!"</span>,
+    max_tokens=200
+)</pre>
+    </div>
+  </div>
+</section>
+
+<!-- Paper -->
+<section id="paper">
+  <h2>Paper</h2>
+  <p class="subtitle">Read the full technical report</p>
+  <div class="paper-box">
+    <div class="paper-info">
+      <h3>OptMLX: Zero-Copy Memory-Mapped Loading and KV Cache Pre-Allocation for MLX on Apple Silicon</h3>
+      <p>AtomGradient, 2025</p>
+      <p>A comprehensive technical report covering the design, implementation, and evaluation of memory optimizations for the MLX framework on Apple Silicon.</p>
+      <a href="paper/paper.pdf" style="display: inline-block; background: var(--accent); color: #fff; padding: 0.5rem 1.5rem; border-radius: 8px; font-weight: 600; text-decoration: none;">Download PDF</a>
+    </div>
+    <div class="bibtex">@article{optmlx2025,
+  title   = {OptMLX: Zero-Copy Memory-Mapped
+             Loading and KV Cache Pre-Allocation
+             for MLX on Apple Silicon},
+  author  = {AtomGradient},
+  year    = {2025},
+  url     = {https://github.com/optmlx/OptMLX}
+}</div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="links">
+    <a href="https://github.com/optmlx/OptMLX">GitHub</a>
+    <a href="#paper">Paper</a>
+    <a href="https://github.com/ml-explore/mlx">MLX</a>
+  </div>
+  <p>OptMLX &copy; 2025 AtomGradient. MIT License.</p>
+</footer>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+// Theme toggle
+function toggleTheme() {
+  const body = document.body;
+  const current = body.getAttribute('data-theme');
+  body.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+  if (window.loadingChartInstance) {
+    window.loadingChartInstance.destroy();
+  }
+  createChart();
+}
+
+// Loading speed chart
+function createChart() {
+  const isDark = document.body.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#8b949e' : '#656d76';
+  const gridColor = isDark ? '#30363d' : '#d0d7de';
+
+  const ctx = document.getElementById('loadingChart').getContext('2d');
+  window.loadingChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['4B-4bit', '4B-8bit', '8B-3bit', '8B-4bit', '8B-6bit', '8B-8bit', '14B-4bit', '14B-6bit'],
+      datasets: [
+        {
+          label: 'Standard',
+          data: [0.101, 0.184, 0.146, 0.352, 0.637, 2.572, 2.323, 3.701],
+          backgroundColor: isDark ? 'rgba(88, 166, 255, 0.7)' : 'rgba(9, 105, 218, 0.7)',
+          borderColor: isDark ? '#58a6ff' : '#0969da',
+          borderWidth: 1,
+        },
+        {
+          label: 'Mmap',
+          data: [0.131, 0.246, 0.075, 0.328, 0.435, 0.125, 0.535, 5.388],
+          backgroundColor: isDark ? 'rgba(248, 81, 73, 0.7)' : 'rgba(207, 34, 46, 0.7)',
+          borderColor: isDark ? '#f85149' : '#cf222e',
+          borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: textColor, font: { size: 13 } } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(3) + 's'; }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: {
+          ticks: { color: textColor, callback: v => v + 's' },
+          grid: { color: gridColor },
+          title: { display: true, text: 'Loading Time (seconds)', color: textColor }
+        }
+      }
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', createChart);
+</script>
+
+</body>
+</html>
