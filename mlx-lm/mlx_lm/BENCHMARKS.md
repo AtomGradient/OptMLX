@@ -101,3 +101,48 @@ Qwen3-14B-6bit | 39.7 | 37.0 | 0.93x | 12.1 | 12.0 | 0.99x | 12.08 | 12.16
 - Benchmark on M4 Max (16C CPU / 40C GPU / 48GB)
 - mlx 0.30.7.dev20260223+d4c81062
 - macOS 26.1
+
+## KV Cache Pre-Allocation (`--pre-allocate-kv`)
+
+Impact of `--pre-allocate-kv` on memory usage and inference performance.
+Prompt ~34 tokens, generation 200 tokens. KV cache dtype: float16.
+
+### Qwen3-4B-4bit (model: 2.109 GB, KV cache: 288 MB/2048tok, 576 MB/4096tok)
+
+Mode | 1st Token (ms) | Prompt tok/s | Gen tok/s | Peak Memory (GB)
+---- | -------------- | ------------ | --------- | ----------------
+dynamic | 260.4 | 200.4 | 62.0 | 2.221
+pre-alloc=2048 | 276.2 | 183.5 | 63.0 | 2.471
+pre-alloc=4096 | 285.2 | 171.9 | 62.3 | 2.736
+
+### Qwen3-8B-4bit (model: 4.291 GB, KV cache: 288 MB/2048tok, 576 MB/4096tok)
+
+Mode | 1st Token (ms) | Prompt tok/s | Gen tok/s | Peak Memory (GB)
+---- | -------------- | ------------ | --------- | ----------------
+dynamic | 419.2 | 100.5 | 31.3 | 4.395
+pre-alloc=2048 | 428.0 | 99.1 | 30.3 | 4.633
+pre-alloc=4096 | 436.1 | 98.0 | 29.7 | 4.908
+
+### Qwen3-14B-4bit (model: 7.737 GB, KV cache: 320 MB/2048tok, 640 MB/4096tok)
+
+Mode | 1st Token (ms) | Prompt tok/s | Gen tok/s | Peak Memory (GB)
+---- | -------------- | ------------ | --------- | ----------------
+dynamic | 859.6 | 44.1 | 16.7 | 7.827
+pre-alloc=2048 | 917.4 | 41.1 | 16.0 | 8.101
+pre-alloc=4096 | 901.5 | 41.7 | 16.1 | 8.414
+
+**Findings:**
+
+- Pre-allocation increases peak memory proportionally to the reserved context length
+  (e.g. Qwen3-14B-4bit +274 MB for 2048 tokens, +587 MB for 4096 tokens).
+- First token latency increases by 2-7% due to upfront `mx.eval` of the zero-filled buffer.
+- Prompt throughput decreases by 2-14%; generation throughput is unaffected (within noise).
+- Dynamic allocation (256-token step growth) is near-zero cost on Apple Silicon unified memory,
+  so pre-allocation provides no benefit for short contexts.
+- **Recommendation:** Do not use `--pre-allocate-kv` for short conversations (< 1K tokens).
+  Reserve it for long-context scenarios (multi-thousand tokens) where repeated dynamic
+  re-allocation may cause memory fragmentation.
+
+- Benchmark on M4 Max (16C CPU / 40C GPU / 48GB)
+- mlx 0.30.7.dev20260223+d4c81062
+- macOS 26.1

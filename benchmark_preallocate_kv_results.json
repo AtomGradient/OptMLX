@@ -1,0 +1,110 @@
+[
+  {
+    "model": "Qwen3-4B-4bit",
+    "model_memory_gb": 2.109,
+    "results": {
+      "dynamic": {
+        "mem_before_cache": 2.109,
+        "first_token_latency": 0.2604,
+        "prompt_tps": 200.4,
+        "generation_tps": 62.0,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 2.221,
+        "mem_after_gen": 2.109
+      },
+      "pre-alloc=2048": {
+        "mem_before_cache": 2.109,
+        "first_token_latency": 0.2762,
+        "prompt_tps": 183.5,
+        "generation_tps": 63.0,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 2.471,
+        "mem_after_gen": 2.109
+      },
+      "pre-alloc=4096": {
+        "mem_before_cache": 2.109,
+        "first_token_latency": 0.2852,
+        "prompt_tps": 171.9,
+        "generation_tps": 62.3,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 2.736,
+        "mem_after_gen": 2.109
+      }
+    }
+  },
+  {
+    "model": "Qwen3-8B-4bit",
+    "model_memory_gb": 4.291,
+    "results": {
+      "dynamic": {
+        "mem_before_cache": 4.291,
+        "first_token_latency": 0.4192,
+        "prompt_tps": 100.5,
+        "generation_tps": 31.3,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 4.395,
+        "mem_after_gen": 4.292
+      },
+      "pre-alloc=2048": {
+        "mem_before_cache": 4.291,
+        "first_token_latency": 0.428,
+        "prompt_tps": 99.1,
+        "generation_tps": 30.3,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 4.633,
+        "mem_after_gen": 4.292
+      },
+      "pre-alloc=4096": {
+        "mem_before_cache": 4.291,
+        "first_token_latency": 0.4361,
+        "prompt_tps": 98.0,
+        "generation_tps": 29.7,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 4.908,
+        "mem_after_gen": 4.292
+      }
+    }
+  },
+  {
+    "model": "Qwen3-14B-4bit",
+    "model_memory_gb": 7.737,
+    "results": {
+      "dynamic": {
+        "mem_before_cache": 7.737,
+        "first_token_latency": 0.8596,
+        "prompt_tps": 44.1,
+        "generation_tps": 16.7,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 7.827,
+        "mem_after_gen": 7.738
+      },
+      "pre-alloc=2048": {
+        "mem_before_cache": 7.737,
+        "first_token_latency": 0.9174,
+        "prompt_tps": 41.1,
+        "generation_tps": 16.0,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 8.101,
+        "mem_after_gen": 7.738
+      },
+      "pre-alloc=4096": {
+        "mem_before_cache": 7.737,
+        "first_token_latency": 0.9015,
+        "prompt_tps": 41.7,
+        "generation_tps": 16.1,
+        "prompt_tokens": 34,
+        "generation_tokens": 200,
+        "peak_memory": 8.414,
+        "mem_after_gen": 7.738
+      }
+    }
+  }
+]
