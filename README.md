@@ -191,10 +191,10 @@ OptMLX/
 ## Citation
 
 ```bibtex
-@misc{optmlx2025,
+@misc{optmlx2026,
   title   = {Exploring Zero-Copy mmap Loading and KV Cache Pre-Allocation for MLX on Apple Silicon},
   author  = {AtomGradient},
-  year    = {2025},
+  year    = {2026},
   url     = {https://github.com/AtomGradient/OptMLX},
 }
 ```
