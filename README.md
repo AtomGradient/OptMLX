@@ -4,7 +4,7 @@ Exploratory research on zero-copy mmap model loading and KV cache pre-allocation
 
 This project investigates whether two memory optimization techniques commonly used in [llama.cpp](https://github.com/ggerganov/llama.cpp) — `mmap()` zero-copy loading and KV cache pre-allocation — can improve MLX's inference performance. Our benchmarks across 8 Qwen3 quantized models on an M1 Max (32GB) reveal that **MLX's existing implementation is already well-designed for Apple Silicon's unified memory architecture**, and these techniques yield mixed results depending on model size and quantization.
 
-**[Project Page](https://atomgradient.github.io/OptMLX/)** · **[Paper (PDF)](paper/paper.pdf)**
+**[Project Page](https://atomgradient.github.io/OptMLX/)** · **[Paper (PDF)](docs/paper.pdf)**
 
 ## Key Findings
 
@@ -177,10 +177,10 @@ OptMLX/
 ├── mlx/                        # Modified MLX framework (C++ core + Python bindings)
 ├── mlx-lm/                     # Modified mlx-lm inference engine (Python)
 ├── paper/
-│   ├── paper.tex               # LaTeX source
-│   └── paper.pdf               # Compiled paper
+│   └── paper.tex               # LaTeX source
 ├── docs/
-│   └── index.html              # GitHub Pages project page
+│   ├── index.html              # GitHub Pages project page
+│   └── paper.pdf               # Compiled paper
 ├── benchmark_mmap_loading.py   # Loading speed benchmark
 ├── benchmark_mmap_inference.py # Inference impact benchmark
 ├── benchmark_preallocate_kv.py # KV cache pre-allocation benchmark
