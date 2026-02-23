@@ -60,9 +60,15 @@ def make_prompt_cache(
         if hasattr(model, "layers") and len(model.layers) > 0:
             layer = model.layers[0]
             if hasattr(layer, "self_attn") and hasattr(layer.self_attn, "k_proj"):
-                w = getattr(layer.self_attn.k_proj, "weight", None)
-                if w is not None:
-                    dtype = w.dtype
+                k_proj = layer.self_attn.k_proj
+                # Quantized layers use scales.dtype; non-quantized use weight.dtype
+                scales = getattr(k_proj, "scales", None)
+                if scales is not None:
+                    dtype = scales.dtype
+                else:
+                    w = getattr(k_proj, "weight", None)
+                    if w is not None and w.dtype in (mx.float16, mx.bfloat16, mx.float32):
+                        dtype = w.dtype
 
         if n_kv_heads and head_dim:
             return [
